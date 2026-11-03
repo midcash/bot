@@ -112,7 +112,7 @@ async function withServer(recentTurns, fn) {
   const post = (text) =>
     fetch(base + '/v1/message', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', connection: 'close' },
       body: JSON.stringify({
         post_type: 'message',
         message_type: 'group',
@@ -140,9 +140,9 @@ test('MIDBOT_RECENT_TURNS=0 sends no history into the prompt of a real request',
     assert.equal(second.status, 200);
 
     assert.equal(prompts.length, 2);
-    assert.match(prompts[1], /second message/);
-    assert.equal(prompts[1].includes('first message'), false, 'history leaked into the prompt');
-    assert.equal(prompts[1].includes('最近的对话'), false, 'history block was injected');
+    assert.match(prompts.at(-1), /second message/);
+    assert.equal(prompts.at(-1).includes('first message'), false, 'history leaked into the prompt');
+    assert.equal(prompts.at(-1).includes('最近的对话'), false, 'history block was injected');
   });
 });
 
@@ -152,8 +152,8 @@ test('control: the same server with a positive limit does inject history', async
     const second = await post('second message');
     assert.equal(second.status, 200);
 
-    assert.match(prompts[1], /最近的对话/);
-    assert.match(prompts[1], /first message/);
+    assert.match(prompts.at(-1), /最近的对话/);
+    assert.match(prompts.at(-1), /first message/);
   });
 });
 

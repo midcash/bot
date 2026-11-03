@@ -6,14 +6,20 @@ function safeId(id) {
   return String(id).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 120) || 'unknown';
 }
 
-// recent() takes a number, a numeric string (the config comes from the environment) or
-// nothing at all. Only a positive finite number keeps rows; a missing, negative, NaN or
-// non-numeric limit collapses to 0. Fail closed: a bad limit can never widen the prompt.
+// recent() takes a number or a plain decimal string, and nothing else. Only a positive
+// finite value keeps rows; everything else collapses to 0. Nothing goes through Number()
+// blindly: Number(true) is 1, Number([2]) is 2 and Number(Symbol()) throws.
 function normalizeLimit(limit) {
-  const value = Number(limit);
-  if (!Number.isFinite(value)) return 0;
-  const whole = Math.trunc(value);
-  return whole > 0 ? whole : 0;
+  if (typeof limit === 'number') {
+    if (!Number.isFinite(limit)) return 0;
+    const whole = Math.trunc(limit);
+    return whole > 0 ? whole : 0;
+  }
+  if (typeof limit === 'string' && /^[0-9]+$/.test(limit)) {
+    const whole = Number(limit);
+    return Number.isFinite(whole) && whole > 0 ? whole : 0;
+  }
+  return 0;
 }
 
 export function createMemory(dir) {
