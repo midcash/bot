@@ -4,28 +4,46 @@ import { join } from 'node:path';
 
 // One JSONL file per conversation. Group, private and per-user scopes never share a file.
 const SAFE_BYTE = /^[A-Za-z0-9_-]$/;
-const MAX_NAME = 120;
+const PREFIX_MAX = 64;
+const DIGEST_CHARS = 32;
 
-// Conversation ids come from transports and may contain '/', ':', spaces or dots.
-// Every byte outside [A-Za-z0-9_-] becomes %XX, so the mapping is injective and
-// reversible: different ids always get different files, and no id can inject a path
-// separator or '..'. '~' never appears in an encoded id; it is reserved for the empty
-// id and as the separator before a digest.
-function safeId(id) {
-  const raw = String(id ?? '');
-  let encoded = '';
-  for (const byte of Buffer.from(raw, 'utf8')) {
-    const char = String.fromCharCode(byte);
-    encoded += byte < 0x80 && SAFE_BYTE.test(char)
-      ? char
-      : '%' + byte.toString(16).toUpperCase().padStart(2, '0');
+// Conversation ids come from transports and may contain '/', ':', spaces, dots or lone
+// surrogates. Encode one UTF-16 code unit at a time: safe ASCII stays as is, other ASCII
+// becomes %XX, anything above becomes %uXXXX. That is injective over code units and
+// lossless, so no id can inject a path separator or '..', and no two ids collapse.
+function encodeId(raw) {
+  let out = '';
+  for (let index = 0; index < raw.length; index++) {
+    const code = raw.charCodeAt(index);
+    const char = String.fromCharCode(code);
+    if (code < 0x80 && SAFE_BYTE.test(char)) out += char;
+    else if (code < 0x100) out += '%' + code.toString(16).toUpperCase().padStart(2, '0');
+    else out += '%u' + code.toString(16).toUpperCase().padStart(4, '0');
   }
-  if (encoded === '') return '~';
-  if (encoded.length <= MAX_NAME) return encoded;
-  // Overlong ids keep a readable prefix plus a digest of the full id. Because '~' is
-  // not part of the encoded alphabet, a hashed name can never equal a plain one.
-  const digest = createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 16);
-  return encoded.slice(0, MAX_NAME - 17) + '~' + digest;
+  return out;
+}
+
+// The filename is "readable prefix ~ digest". Identity lives in the digest, never in the
+// prefix: Windows and macOS compare filenames case-insensitively, so ids that differ only
+// in letter case (g:A vs g:a) must still land on different files. The digest is taken over
+// the encoded form, which is pure ASCII, so hashing cannot fold lone surrogates into U+FFFD
+// the way Buffer.from(raw, 'utf8') does. '~' is not part of the encoded alphabet.
+function safeId(id) {
+  const encoded = encodeId(String(id ?? ''));
+  const digest = createHash('sha256').update(encoded, 'ascii').digest('hex').slice(0, DIGEST_CHARS);
+  return prefixOf(encoded) + '~' + digest;
+}
+
+// Whole escape units only, so the prefix never ends in a half written %XX or %uXXXX.
+function prefixOf(encoded) {
+  let prefix = '';
+  for (let index = 0; index < encoded.length; ) {
+    const width = encoded[index] === '%' ? (encoded[index + 1] === 'u' ? 6 : 3) : 1;
+    if (prefix.length + width > PREFIX_MAX) break;
+    prefix += encoded.slice(index, index + width);
+    index += width;
+  }
+  return prefix || 'empty';
 }
 
 export function createMemory(dir) {

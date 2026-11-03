@@ -190,3 +190,19 @@ test('filenames carry a 32 hex digest suffix after the readable prefix', async (
     assert.match(file, /^chat%2Fa~[0-9a-f]{32}\.jsonl$/);
   });
 });
+
+test('overlong ids that differ only in a lone surrogate keep separate digests', async () => {
+  const base = 'g:' + 'x'.repeat(200);
+  const a = base + '\uD800';
+  const b = base + '\uD801';
+
+  await withMemory(async (memory, dir) => {
+    await memory.append(a, { role: 'user', text: 'tail-d800' });
+    await memory.append(b, { role: 'user', text: 'tail-d801' });
+
+    const files = await readdir(dir);
+    assert.equal(files.length, 2, 'the digest collapsed both ids: ' + files.join(', '));
+    assert.deepEqual(await texts(memory, a), ['tail-d800']);
+    assert.deepEqual(await texts(memory, b), ['tail-d801']);
+  });
+});
