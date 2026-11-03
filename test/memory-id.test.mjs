@@ -4,6 +4,9 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMemory } from '../src/memory.mjs';
+import { createPolicy } from '../src/policy.mjs';
+import { createServer } from '../src/server.mjs';
+import { loadConfig } from '../src/config.mjs';
 
 // Every test gets its own temp dir: nothing is written inside the repository.
 async function withMemory(fn) {
@@ -205,4 +208,53 @@ test('overlong ids that differ only in a lone surrogate keep separate digests', 
     assert.deepEqual(await texts(memory, a), ['tail-d800']);
     assert.deepEqual(await texts(memory, b), ['tail-d801']);
   });
+});
+
+test('two HTTP requests whose group ids differ only in case stay isolated', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'midbot-server-case-'));
+  const config = loadConfig({ MIDBOT_RECENT_TURNS: '6' }, dir);
+  const memory = createMemory(config.memoryDir);
+  const policy = createPolicy(config);
+  const prompts = [];
+  const brain = {
+    async ask({ prompt }) {
+      prompts.push(prompt);
+      return { ok: true, text: 'ok', ms: 1, usage: null };
+    },
+  };
+  const quiet = { error() {}, warn() {} };
+  const server = createServer({ config, brain, memory, policy, logger: quiet });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const post = (groupId, text) =>
+    fetch(base + '/v1/message', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', connection: 'close' },
+      body: JSON.stringify({
+        post_type: 'message',
+        message_type: 'group',
+        group_id: groupId,
+        user_id: '7',
+        raw_message: text,
+      }),
+    });
+
+  try {
+    const first = await post('UPPER', 'first-secret');
+    assert.equal(first.status, 200);
+
+    const second = await post('upper', 'second-message');
+    assert.equal(second.status, 200);
+
+    assert.equal(
+      prompts.at(-1).includes('first-secret'),
+      false,
+      'history leaked across group ids that differ only in case',
+    );
+    assert.match(prompts.at(-1), /second-message/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await rm(dir, { recursive: true, force: true });
+  }
 });
