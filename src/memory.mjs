@@ -34,7 +34,7 @@ function encodeId(raw) {
 // undefined and '' into one conversation, so a non-string throws instead of guessing.
 function safeId(id) {
   if (typeof id !== 'string') {
-    throw new TypeError('conversation id must be a string, got ' + typeof id);
+    throw new TypeError('conversation id must be a string, got ' + (id === null ? 'null' : typeof id));
   }
   const encoded = encodeId(id);
   const digest = createHash('sha256').update(encoded, 'ascii').digest('hex').slice(0, DIGEST_CHARS);
