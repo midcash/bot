@@ -125,3 +125,68 @@ test('generated filenames are safe and recognisable', async () => {
     }
   });
 });
+
+// --- verifier follow-up: case folding, lone surrogates, empty id convention ---
+
+test('g:A and g:a are separate conversations on a case-insensitive filesystem', async () => {
+  await withMemory(async (memory) => {
+    await memory.append('g:A', { role: 'user', text: 'upper-secret' });
+    await memory.append('g:a', { role: 'user', text: 'lower-secret' });
+
+    assert.deepEqual(await texts(memory, 'g:A'), ['upper-secret']);
+    assert.deepEqual(await texts(memory, 'g:a'), ['lower-secret']);
+  });
+});
+
+test('no two conversations share a file even after case folding', async () => {
+  const ids = ['g:A', 'g:a', 'G:a', 'chat/X', 'chat/x', 'u:Z', 'u:z'];
+
+  await withMemory(async (memory, dir) => {
+    for (const [index, id] of ids.entries()) {
+      await memory.append(id, { role: 'user', text: 'v' + index });
+    }
+
+    const files = await readdir(dir);
+    assert.equal(files.length, ids.length, 'ids collided on disk: ' + files.join(', '));
+
+    const folded = files.map((file) => file.toLowerCase());
+    assert.equal(new Set(folded).size, folded.length, 'case folded names collide: ' + files.join(', '));
+  });
+});
+
+test('lone surrogates in an id get distinct files', async () => {
+  const ids = ['g:\uD800', 'g:\uD801', 'g:\uDC00'];
+
+  await withMemory(async (memory) => {
+    for (const [index, id] of ids.entries()) {
+      await memory.append(id, { role: 'user', text: 'surrogate-' + index });
+    }
+
+    for (const [index, id] of ids.entries()) {
+      assert.deepEqual(await texts(memory, id), ['surrogate-' + index], 'id ' + index);
+    }
+  });
+});
+
+test('the empty id keeps a readable prefix and its own file', async () => {
+  await withMemory(async (memory, dir) => {
+    await memory.append('', { role: 'user', text: 'empty-id' });
+
+    const files = await readdir(dir);
+    assert.equal(files.length, 1);
+    assert.ok(files[0].startsWith('empty~'), 'empty id lost its prefix: ' + files[0]);
+
+    await memory.append('empty', { role: 'user', text: 'literal-empty' });
+    assert.deepEqual(await texts(memory, ''), ['empty-id']);
+    assert.deepEqual(await texts(memory, 'empty'), ['literal-empty']);
+  });
+});
+
+test('filenames carry a 32 hex digest suffix after the readable prefix', async () => {
+  await withMemory(async (memory, dir) => {
+    await memory.append('chat/a', { role: 'user', text: 'x' });
+
+    const [file] = await readdir(dir);
+    assert.match(file, /^chat%2Fa~[0-9a-f]{32}\.jsonl$/);
+  });
+});
