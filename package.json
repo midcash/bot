@@ -1,0 +1,13 @@
+{
+  "name": "midbot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A chat bot whose brain is a restricted pi instance.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "dev": "node --watch src/index.mjs",
+    "test": "node --test test/"
+  }
+}
