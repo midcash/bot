@@ -53,6 +53,22 @@ function prefixOf(encoded) {
   return prefix || 'empty';
 }
 
+// recent() takes a number or a plain decimal string, and nothing else. Only a positive
+// finite value keeps rows; everything else collapses to 0. Nothing goes through Number()
+// blindly: Number(true) is 1, Number([2]) is 2 and Number(Symbol()) throws.
+function normalizeLimit(limit) {
+  if (typeof limit === 'number') {
+    if (!Number.isFinite(limit)) return 0;
+    const whole = Math.trunc(limit);
+    return whole > 0 ? whole : 0;
+  }
+  if (typeof limit === 'string' && /^[0-9]+$/.test(limit)) {
+    const whole = Number(limit);
+    return Number.isFinite(whole) && whole > 0 ? whole : 0;
+  }
+  return 0;
+}
+
 export function createMemory(dir) {
   async function pathFor(conversationId) {
     await mkdir(dir, { recursive: true });
@@ -94,9 +110,13 @@ export function createMemory(dir) {
   }
 
   // Newest N turns, oldest first, ready to paste into a prompt.
+  // A limit of 0 (MIDBOT_RECENT_TURNS=0) means "inject nothing", and so does a
+  // missing limit: only a positive number returns rows.
   async function recent(conversationId, limit) {
+    const take = normalizeLimit(limit);
+    if (take === 0) return [];
     const rows = await read(conversationId);
-    return rows.slice(-limit);
+    return rows.slice(-take);
   }
 
   async function search(conversationId, query, limit = 10) {
