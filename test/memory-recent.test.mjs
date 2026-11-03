@@ -156,3 +156,27 @@ test('control: the same server with a positive limit does inject history', async
     assert.match(prompts[1], /first message/);
   });
 });
+
+test('non-numeric types are rejected instead of coerced', async () => {
+  await withMemory(async (memory) => {
+    await seed(memory, 'chat', 3);
+
+    assert.deepEqual(await texts(memory, 'chat', true), []);
+    assert.deepEqual(await texts(memory, 'chat', false), []);
+    assert.deepEqual(await texts(memory, 'chat', [2]), []);
+    assert.deepEqual(await texts(memory, 'chat', {}), []);
+    assert.deepEqual(await texts(memory, 'chat', { valueOf: () => 2 }), []);
+    assert.deepEqual(await texts(memory, 'chat', ' 2 '), []);
+    assert.deepEqual(await texts(memory, 'chat', '2.9'), []);
+    assert.deepEqual(await texts(memory, 'chat', '9'.repeat(400)), []);
+  });
+});
+
+test('a Symbol limit returns no history and does not throw', async () => {
+  await withMemory(async (memory) => {
+    await seed(memory, 'chat', 2);
+
+    await assert.doesNotReject(async () => memory.recent('chat', Symbol('2')));
+    assert.deepEqual(await texts(memory, 'chat', Symbol('2')), []);
+  });
+});
