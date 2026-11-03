@@ -6,6 +6,16 @@ function safeId(id) {
   return String(id).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 120) || 'unknown';
 }
 
+// recent() takes a number, a numeric string (the config comes from the environment) or
+// nothing at all. Only a positive finite number keeps rows; a missing, negative, NaN or
+// non-numeric limit collapses to 0. Fail closed: a bad limit can never widen the prompt.
+function normalizeLimit(limit) {
+  const value = Number(limit);
+  if (!Number.isFinite(value)) return 0;
+  const whole = Math.trunc(value);
+  return whole > 0 ? whole : 0;
+}
+
 export function createMemory(dir) {
   async function pathFor(conversationId) {
     await mkdir(dir, { recursive: true });
@@ -47,9 +57,13 @@ export function createMemory(dir) {
   }
 
   // Newest N turns, oldest first, ready to paste into a prompt.
+  // A limit of 0 (MIDBOT_RECENT_TURNS=0) means "inject nothing", and so does a
+  // missing limit: only a positive number returns rows.
   async function recent(conversationId, limit) {
+    const take = normalizeLimit(limit);
+    if (take === 0) return [];
     const rows = await read(conversationId);
-    return rows.slice(-limit);
+    return rows.slice(-take);
   }
 
   async function search(conversationId, query, limit = 10) {
