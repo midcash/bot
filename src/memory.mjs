@@ -9,15 +9,16 @@ const DIGEST_CHARS = 32;
 
 // Conversation ids come from transports and may contain '/', ':', spaces, dots or lone
 // surrogates. Encode one UTF-16 code unit at a time: safe ASCII stays as is, other ASCII
-// becomes %XX, anything above becomes %uXXXX. That is injective over code units and
-// lossless, so no id can inject a path separator or '..', and no two ids collapse.
+// becomes %XX, every non-ASCII code unit (Latin-1 included) becomes %uXXXX. That is
+// injective over code units and lossless, so no id can inject a path separator or '..',
+// and no two ids collapse.
 function encodeId(raw) {
   let out = '';
   for (let index = 0; index < raw.length; index++) {
     const code = raw.charCodeAt(index);
     const char = String.fromCharCode(code);
     if (code < 0x80 && SAFE_BYTE.test(char)) out += char;
-    else if (code < 0x100) out += '%' + code.toString(16).toUpperCase().padStart(2, '0');
+    else if (code < 0x80) out += '%' + code.toString(16).toUpperCase().padStart(2, '0');
     else out += '%u' + code.toString(16).toUpperCase().padStart(4, '0');
   }
   return out;
@@ -28,8 +29,14 @@ function encodeId(raw) {
 // in letter case (g:A vs g:a) must still land on different files. The digest is taken over
 // the encoded form, which is pure ASCII, so hashing cannot fold lone surrogates into U+FFFD
 // the way Buffer.from(raw, 'utf8') does. '~' is not part of the encoded alphabet.
+//
+// The id contract is a string, nothing else: String(null ?? '') would merge null,
+// undefined and '' into one conversation, so a non-string throws instead of guessing.
 function safeId(id) {
-  const encoded = encodeId(String(id ?? ''));
+  if (typeof id !== 'string') {
+    throw new TypeError('conversation id must be a string, got ' + typeof id);
+  }
+  const encoded = encodeId(id);
   const digest = createHash('sha256').update(encoded, 'ascii').digest('hex').slice(0, DIGEST_CHARS);
   return prefixOf(encoded) + '~' + digest;
 }
