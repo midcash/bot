@@ -258,3 +258,48 @@ test('two HTTP requests whose group ids differ only in case stay isolated', asyn
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// --- verifier round 3: id contract and %uXXXX coverage ---
+
+test('non-string conversation ids are rejected by every entry point', async () => {
+  await withMemory(async (memory) => {
+    for (const bad of [null, undefined, 42, {}, ['chat']]) {
+      const label = ' for ' + String(bad);
+      await assert.rejects(async () => memory.append(bad, { role: 'user', text: 'x' }), TypeError, 'append' + label);
+      await assert.rejects(async () => memory.read(bad), TypeError, 'read' + label);
+      await assert.rejects(async () => memory.recent(bad, 2), TypeError, 'recent' + label);
+      await assert.rejects(async () => memory.search(bad, 'x'), TypeError, 'search' + label);
+    }
+  });
+});
+
+test('a null id no longer lands in the empty string conversation', async () => {
+  await withMemory(async (memory) => {
+    await memory.append('', { role: 'user', text: 'empty-string' });
+    await assert.rejects(async () => memory.append(null, { role: 'user', text: 'null-row' }), TypeError);
+
+    assert.deepEqual(await texts(memory, ''), ['empty-string']);
+    assert.deepEqual(await texts(memory, 'null'), []);
+  });
+});
+
+test('every non-ASCII code unit is encoded as %uXXXX, Latin-1 included', async () => {
+  await withMemory(async (memory, dir) => {
+    for (const code of [0x80, 0xe9, 0xff]) {
+      await memory.append(String.fromCharCode(code), { role: 'user', text: 'cp-' + code.toString(16) });
+    }
+
+    const files = await readdir(dir);
+    const expected = ['%u0080', '%u00E9', '%u00FF'];
+    for (const prefix of expected) {
+      assert.ok(
+        files.some((file) => file.startsWith(prefix + '~')),
+        'missing ' + prefix + ' in ' + files.join(', '),
+      );
+    }
+
+    for (const code of [0x80, 0xe9, 0xff]) {
+      assert.deepEqual(await texts(memory, String.fromCharCode(code)), ['cp-' + code.toString(16)]);
+    }
+  });
+});
